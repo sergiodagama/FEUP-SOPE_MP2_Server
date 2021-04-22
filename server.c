@@ -34,7 +34,7 @@ typedef struct message { int rid; pid_t pid; pthread_t tid; int tskload; int tsk
 
 pthread_mutex_t lock; //structure used to implement mutex
 
-char *public_fifo;  //holds the public fifo name/path
+char public_fifo[100];  //holds the public fifo name/path
 
 bool time_is_up = false;  //to keep track of server execution time
 
@@ -129,18 +129,31 @@ int main(int argc, char* argv[]){
     int nsecs = atoi(argv[2]);
     int bufsize = 1;
 
+    //getting the current directory
+    if (getcwd(public_fifo, sizeof(public_fifo)) == NULL) {
+       fprintf(stderr, "Error getting current working dir\n");
+       return ERROR;
+    }
+
+    strcat(public_fifo, "/");
+
     if(str_cmp(argv[3], "-l")){
         bufsize = atoi(argv[4]);
-        public_fifo = argv[5];
+        strcat(public_fifo, argv[5]);
     }
     else{
-        public_fifo = argv[3];
+        strcat(public_fifo, argv[3]);
     }
+
+
+    if(debug) printf("Fifo path: %s\n", public_fifo);
 
     //creating public fifo file
     if(mkfifo(public_fifo, 0777) == ERROR){
+        fprintf(stderr, "Error when creating public fifo\n");
         return ERROR;                                                
     }
+    
 
     //thread unique identifier
     long int id = 1;
