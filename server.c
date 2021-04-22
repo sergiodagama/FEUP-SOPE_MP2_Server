@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
+#include<signal.h>
 
 #define ERROR -1
 #define RECVD "RECVD"
@@ -81,10 +82,25 @@ bool is_number(char *str){
      for (int i = 0; str[i] != '\0'; i++)
         if (isdigit(str[i]) == false)
             return false;
- 
     return true;
 }
 
+void sig_handler(int signum){
+    time_t now;
+    time(&now);
+    fprintf(stderr,"[server] timeout reached: %ld\n", now);
+
+    //deleting public fifo file
+    if(remove(public_fifo) != 0){
+        fprintf(stderr, "Not successfully deleted public file\n");
+    }
+
+    //main thread waits for all threads to exit
+    pthread_exit(NULL);
+
+    //releasing pthread mutex structure
+    pthread_mutex_destroy(&lock);
+}
 
 void *producer_thread(void * arg){
     message_t *request = (message_t*) arg;
@@ -114,12 +130,6 @@ int main(int argc, char* argv[]){
     time_t initial_time;
     time(&initial_time);
 
-    //initializing pthread mutex structure
-    if (pthread_mutex_init(&lock, NULL) != 0) {
-        fprintf(stderr, "Mutex init has failed\n");
-        return ERROR;
-    }
-
    /*--------------------INPUT ERROR VERIFICATION--------------------*/
 
     //when less than the minimun arguments number is given
@@ -140,8 +150,20 @@ int main(int argc, char* argv[]){
 
     /*---------------------PROGRAM INITIALIZATION---------------------*/   
 
+    //initializing pthread mutex structure
+    if (pthread_mutex_init(&lock, NULL) != 0) {
+        fprintf(stderr, "Mutex init has failed\n");
+        return ERROR;
+    }
+
+    //registreing signal handler
+    signal(SIGALRM, sig_handler); 
+
     //retrieving arguments inputted
     int nsecs = atoi(argv[2]);
+
+    //setting alarm
+    alarm(nsecs);
 
     if(str_cmp(argv[3], "-l")){
         bufsz = atoi(argv[4]);
@@ -177,53 +199,48 @@ int main(int argc, char* argv[]){
     //getting the request from client
     message_t *request;
 
-    
-    /*---------------------MAIN THREAD (C0) LOOP---------------------*/
+    //openning public fifo
+    public_fd = open(public_fifo, O_RDONLY); 
 
+    //when the read side it is not open
+    if(public_fd < 0){ 
+        if(debug) printf("Error while opening public fifo file: %s\n", strerror(errno));  //DEBUG
+    }
+    
+     /*---------------------MAIN THREAD (C0) LOOP---------------------*/
+
+    //reading requests from client
     while(!time_is_up){
-        //openning public fifo
-        public_fd = open(public_fifo, O_RDONLY | O_NONBLOCK);  //NOT WORKING
+        bytes_read = read(public_fd, request, sizeof(message_t)); 
+
+        //atualize time_is_up
+        time_t now;
+        time(&now);
         
-        //when the read side it is not open
-        if(public_fd == ERROR){ 
-            if(debug) printf("Error while opening public fifo file!\n");  //DEBUG
-            public_fifo_closed = true;  
-        }
-        else{
-            public_fifo_closed = false;
-        }
-
-        if(!public_fifo_closed){
-            //reading requests from client
-            bytes_read = read(public_fd, request, sizeof(message_t)); 
-
-            //to check if there was a resquest or not
-            if(bytes_read > 0){
-                //creating producer threads
-                pthread_t thread_id;
-
-                if(debug) printf("created producer thread number: %ld\n", id); //DEBUG
-
-                if(pthread_create(&thread_id, NULL, &producer_thread, (void*)request) != 0) return ERROR;
-
-                id++;
-            }
-            else{
-                if(debug) printf("timeout read: %d\n", tout);  //DEBUG
-                tout++;  //DEBUG
-                sleep(1);
-            }
-        }
-    
         //checking if nsecs have passed already
-        time(&cur_secs);
-
-        if (cur_secs - initial_time >= nsecs){
-            fprintf(stderr,"[server] timeout reached: %ld\n", cur_secs);
+        if(now - initial_time >= nsecs){
+            fprintf(stderr,"[server] timeout reached: %ld\n", now);
             time_is_up = true;
         }
-    }
 
+        //to check if there was a resquest or not
+        if(bytes_read > 0){
+            //creating producer threads
+            pthread_t thread_id;
+
+            if(debug) printf("created producer thread number: %ld\n", id); //DEBUG
+
+            if(pthread_create(&thread_id, NULL, &producer_thread, (void*)request) != 0) return ERROR;
+
+            id++;
+        }
+        else{
+            if(debug) printf("timeout read: %d", tout);  //DEBUG
+            tout++;  //DEBUG
+            sleep(1);
+        }
+    }
+            
     /*-------------------------ENDING PROGRAM-------------------------*/
 
     //closing public fifo
