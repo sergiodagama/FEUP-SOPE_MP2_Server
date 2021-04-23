@@ -85,6 +85,11 @@ bool is_number(char *str){
     return true;
 }
 
+/**
+ * @brief handles signals (for now just needed sigalam)
+ * 
+ * @param signum the identifier of the signal
+ */
 void sig_handler(int signum){
     time_t now;
     time(&now);
@@ -102,6 +107,12 @@ void sig_handler(int signum){
     pthread_mutex_destroy(&lock);
 }
 
+/**
+ * @brief executed by prodcuer threads, that produce a task into buffer
+ * 
+ * @param arg the request message from client
+ * @return void* 
+ */
 void *producer_thread(void * arg){
     message_t *request = (message_t*) arg;
     //get current time
@@ -114,11 +125,23 @@ void *producer_thread(void * arg){
     fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", cur_secs, request->rid, request->tskload, pid, tid, request->tskres, RECVD);
 }
 
+/**
+ * @brief executed by the consumer thread, wich will retrieve tasks from buffer
+ * 
+ * @param arg 
+ * @return void* 
+ */
 void *consumer_thread(void * arg){}
 
 
 /*-------------------END UTIL FUNCTIONS-------------------*/
-
+/**
+ * @brief main server function, where program it is intialized, main loop and ended
+ * 
+ * @param argc the number of arguments passed
+ * @param argv the arguments itself
+ * @return int 0 on success, ERROR on fail
+ */
 int main(int argc, char* argv[]){
     /*
     # ARGV 0 -> ./s         ARGV 3 -> fifoname / -l   #
@@ -152,7 +175,7 @@ int main(int argc, char* argv[]){
 
     //initializing pthread mutex structure
     if (pthread_mutex_init(&lock, NULL) != 0) {
-        fprintf(stderr, "Mutex init has failed\n");
+        fprintf(stderr, "[server] Mutex init has failed\n");
         return ERROR;
     }
 
@@ -182,7 +205,7 @@ int main(int argc, char* argv[]){
 
     //creating public fifo file
     if(mkfifo(public_fifo, 0777) == ERROR){
-        fprintf(stderr, "Error when creating public fifo: %s\n", strerror(errno));
+        fprintf(stderr, "[server] Error when creating public fifo: %s\n", strerror(errno));
         return ERROR;                                                
     }
 
@@ -202,9 +225,8 @@ int main(int argc, char* argv[]){
     //openning public fifo
     public_fd = open(public_fifo, O_RDONLY); 
 
-    //when the read side it is not open
     if(public_fd < 0){ 
-        if(debug) printf("Error while opening public fifo file: %s\n", strerror(errno));  //DEBUG
+        if(debug) printf("[server] Error while opening public fifo file: %s\n", strerror(errno));  //DEBUG
     }
     
      /*---------------------MAIN THREAD (C0) LOOP---------------------*/
@@ -234,7 +256,7 @@ int main(int argc, char* argv[]){
 
             id++;
         }
-        else{
+        else{ //TODO: IF READ TIMEOUTS FOR LONG ASSUME CLIENT IT IS CLOSED AND EXIT
             if(debug) printf("timeout read: %d", tout);  //DEBUG
             tout++;  //DEBUG
             sleep(1);
@@ -248,7 +270,7 @@ int main(int argc, char* argv[]){
 
     //deleting public fifo file
     if(remove(public_fifo) != 0){
-        fprintf(stderr, "Not successfully deleted public file\n");
+        fprintf(stderr, "[server] Not able to delete public file\n");
     }
 
     //main thread waits for all threads to exit
