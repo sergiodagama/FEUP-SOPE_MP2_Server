@@ -20,7 +20,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
-#include<signal.h>
+#include <signal.h>
 
 #define ERROR -1
 #define RECVD "RECVD"
@@ -45,6 +45,8 @@ bool public_fifo_closed = true;  //to keep track of public fifo
 bool debug = true;  //used to keep track of debugging printfs
 
 int bufsz = 1;  //server buffer size (default 1)
+
+bool buffer_is_empty = false;  //to keep track if buffer is empty or not
 
 /*------------------END GLOBAL VARIABLES------------------*/
 
@@ -114,15 +116,43 @@ void sig_handler(int signum){
  * @return void* 
  */
 void *producer_thread(void * arg){
+    //request message from client
     message_t *request = (message_t*) arg;
-    //get current time
+
+    //get current time and current thread info
     time_t cur_secs;
     time(&cur_secs);
-
     pthread_t tid = pthread_self();
     int pid = getpid();
    
     fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", cur_secs, request->rid, request->tskload, pid, tid, request->tskres, RECVD);
+
+    //!!!!!!!!!!!!!!!!!!!!!!NEW UNTESTED PART!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+    //doing the designated task calling library B
+    int task_res = task(request->tskload);
+
+    //getting time after task execution
+    time(&cur_secs);
+
+    fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", cur_secs, request->rid, request->tskload, pid, tid, task_res, TSKEX);
+
+    //send task result to buffer
+    message_t *request_result;
+
+    request_result->pid = pid;
+    request_result->rid = request->rid;
+    request_result->tid = tid;
+    request_result->tskload = request->tskload;
+    request_result->tskres = task_res;
+
+    //locking code wiht mutex
+    pthread_mutex_lock(&lock);
+
+    insert(request_result);
+
+    //unlocking code wiht mutex
+    pthread_mutex_unlock(&lock);
 }
 
 /**
@@ -131,7 +161,62 @@ void *producer_thread(void * arg){
  * @param arg 
  * @return void* 
  */
-void *consumer_thread(void * arg){}
+void *consumer_thread(void * arg){
+
+ //!!!!!!!!!!!!!!!!!!!!!!NEW UNTESTED PART!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+    //info about the consumer thread itself
+    pthread_t tid;
+    int pid;
+    time_t now;
+
+    //info that if going to be retrieved from buffer
+    message_t *answer;
+
+    //loop while time isn't up
+    while(!time_is_up){
+        int bytes_written = ERROR;
+
+        //locking code wiht mutex
+        pthread_mutex_lock(&lock);
+
+        if(!empty()){
+            answer = front();
+            pop();
+        }
+
+        if(answer != NULL){
+            char priv_path[100];
+
+            sprintf(priv_path, "/tmp/%d.%lu", answer->pid, answer->tid);
+
+            //open private fifo
+            int priv_fd = open(priv_path, O_WRONLY);
+
+            //write answer to client in the private fifo
+            bytes_written = write(priv_fd, &answer, sizeof(message_t));
+
+            //maybe sleep(1) in the end?
+            
+            //unlocking code wiht mutex
+            pthread_mutex_unlock(&lock);
+
+            if(bytes_written < 0){
+                time(&now);
+                fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, FAILD);
+            }
+            else{
+                time(&now);
+                fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, TSKDN);
+            }
+        }
+    }
+    
+    if(answer != NULL){
+        time(&now);
+        fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer>tid, answer->tskres, TLATE);
+    }
+}
 
 
 /*-------------------END UTIL FUNCTIONS-------------------*/
@@ -228,6 +313,13 @@ int main(int argc, char* argv[]){
     if(public_fd < 0){ 
         if(debug) printf("[server] Error while opening public fifo file: %s\n", strerror(errno));  //DEBUG
     }
+
+    //creating consumer thread
+    pthread_t con_thread_id;
+
+    if(debug) printf("created consumer thread!\n"); //DEBUG
+
+    if(pthread_create(&con_thread_id, NULL, &consumer_thread, (void*)0) != 0) return ERROR;
     
      /*---------------------MAIN THREAD (C0) LOOP---------------------*/
 
@@ -248,15 +340,15 @@ int main(int argc, char* argv[]){
         //to check if there was a resquest or not
         if(bytes_read > 0){
             //creating producer threads
-            pthread_t thread_id;
+            pthread_t prod_thread_id;
 
             if(debug) printf("created producer thread number: %ld\n", id); //DEBUG
 
-            if(pthread_create(&thread_id, NULL, &producer_thread, (void*)request) != 0) return ERROR;
+            if(pthread_create(&prod_thread_id, NULL, &producer_thread, (void*)request) != 0) return ERROR;
 
             id++;
         }
-        else{ //TODO: IF READ TIMEOUTS FOR LONG ASSUME CLIENT IT IS CLOSED AND EXIT
+        else{ //TODO: IF READ TIMEOUTS FOR LONG ASSUME CLIENT IT'S CLOSED AND EXIT
             if(debug) printf("timeout read: %d", tout);  //DEBUG
             tout++;  //DEBUG
             sleep(1);
