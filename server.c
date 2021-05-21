@@ -347,7 +347,9 @@ int main(int argc, char* argv[]){
         fprintf(stderr, "[server] Not able to delete public file\n");
     }
 
-    while()
+    while(activeThreads != 0){
+        sleep(2);
+    }
     //releasing pthread mutex structure
     pthread_mutex_destroy(&lock);
 
