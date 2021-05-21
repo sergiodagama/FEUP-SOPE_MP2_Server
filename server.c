@@ -240,6 +240,10 @@ int main(int argc, char* argv[]){
         return ERROR;
     }
 
+    //semaphore initialization
+    sem_init(&empty,0,bufsz);
+    sem_init(&full,0,0);
+
     //registreing signal handler
     signal(SIGALRM, sig_handler); 
 
@@ -352,6 +356,12 @@ int main(int argc, char* argv[]){
     }
     //releasing pthread mutex structure
     pthread_mutex_destroy(&lock);
+
+    //realeasing semaphore
+    sem_destroy(&empty);
+    sem_destroy(&full);
+
+
 
     //main thread waits for all threads to exit
     pthread_exit(NULL);
