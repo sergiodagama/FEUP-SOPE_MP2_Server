@@ -64,6 +64,10 @@ bool first = true;
 
 queue* deallocator;
 
+message_t* reque;
+
+message_t* buffer_req[10000];
+
 /*------------------END GLOBAL VARIABLES------------------*/
 
 /**
@@ -78,6 +82,7 @@ void sig_handler(int signum){
 
     time_is_up = true;
     printf("Time is up\n");
+    //exit(0);
 }
 
 /**
@@ -88,14 +93,19 @@ void sig_handler(int signum){
  */
 void *producer_thread(void * arg){
     //request message from client
+       
+
     message_t *request = arg;
 
+    //ptread_mutex_unlock(&lock);
+
+        
     //get current time and current thread info
     time_t cur_secs;
     time(&cur_secs);
     pthread_t tid = pthread_self();
     int pid = getpid();
-   
+    
     fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", cur_secs, request->rid, request->tskload, pid, tid, request->tskres, RECVD);
 
     //!!!!!!!!!!!!!!!!!!!!!!NEW UNTESTED PART!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -116,12 +126,19 @@ void *producer_thread(void * arg){
     request_result->tid = request->tid;
     request_result->tskload = request->tskload;
     request_result->tskres = task_res;
-    
+        
     printf("Hello5\n");
-    //locking code wiht mutex
+
+    //semaphore initialization
+    // sem_init(&empty, 0, 0);
+    // sem_init(&full, 0, bufsz);
+
+    printf("Before\n");
+    sem_wait(&full);
+
     pthread_mutex_lock(&lock);
 
-    insert(buffer,request_result);
+    insert(buffer, request_result);
 
     //unlocking code wiht mutex
     pthread_mutex_unlock(&lock);
@@ -129,6 +146,9 @@ void *producer_thread(void * arg){
     //Insert so later we can deallocate memory
 
     //insert(deallocator, request_result);
+    sem_post(&empty);
+    printf("After\n");
+    
     
     printf("Hello6\n");
     activeThreads--;
@@ -142,34 +162,37 @@ void *producer_thread(void * arg){
  * @return void* 
  */
 void *consumer_thread(void * arg){
-
-
-    
     //info about the consumer thread itself
     pthread_t tid;
     int pid;
     time_t now;
 
-    printf("Hello\n");
+    printf("Hello consumer\n");
+
+    
 
     //info that if going to be retrieved from buffer
     message_t *answer = malloc( sizeof(message_t) );
 
     //loop while time isn't up
-    while(activeThreads != 0 || first){
+    while(activeThreads != 0 || !time_is_up){
         int bytes_written = ERROR;
         printf("Hello1\n");
-        sem_wait(&full);
-        //locking code wiht mutex
-        pthread_mutex_lock(&lock);
-
-        if(!isEmpty(buffer)){
-            answer = front(buffer);
-            pop(buffer);
-        }
         
-        pthread_mutex_unlock(&lock);
-        sem_post(&empty);
+        //locking code wiht mutex
+
+
+        sem_wait(&empty);
+
+       // pthread_mutex_lock(&lock);
+
+        answer = front(buffer);
+        pop(buffer);
+       
+       // pthread_mutex_unlock(&lock);
+
+        sem_post(&full);
+
         printf("Hello2\n");
         if(answer != NULL){
             char priv_path[100];
@@ -197,10 +220,10 @@ void *consumer_thread(void * arg){
         }
     }
     printf("Hello3\n");
-    if(answer != NULL){
+    /*if(answer != NULL){
         time(&now);
         fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, TLATE);
-    }
+    }*/
 
     //Insert answer in queue to later deallocate memory
     //insert(deallocator, answer);
@@ -244,7 +267,15 @@ int main(int argc, char* argv[]){
 
     /*------------------END INPUT ERROR VERIFICATION------------------*/ 
 
-    /*---------------------PROGRAM INITIALIZATION---------------------*/   
+    /*---------------------PROGRAM INITIALIZATION---------------------*/  
+
+    if(str_cmp(argv[3], "-l")){
+        bufsz = atoi(argv[4]);
+        strcat(public_fifo, argv[5]);
+    }
+    else{
+        strcat(public_fifo, argv[3]);
+    }
 
     //initializing pthread mutex structure
     if (pthread_mutex_init(&lock, NULL) != 0) {
@@ -253,8 +284,8 @@ int main(int argc, char* argv[]){
     }
 
     //semaphore initialization
-    sem_init(&empty,0,bufsz);
-    sem_init(&full,0,0);
+    sem_init(&empty,0,0);
+    sem_init(&full,0,bufsz);
 
     //registreing signal handler
     signal(SIGALRM, sig_handler); 
@@ -264,14 +295,6 @@ int main(int argc, char* argv[]){
 
     //setting alarm
     alarm(nsecs);
-
-    if(str_cmp(argv[3], "-l")){
-        bufsz = atoi(argv[4]);
-        strcat(public_fifo, argv[5]);
-    }
-    else{
-        strcat(public_fifo, argv[3]);
-    }
 
     if(debug) printf("Fifo path: %s\n", public_fifo);  //DEBUG
 
@@ -341,13 +364,14 @@ int main(int argc, char* argv[]){
 
             if(debug) printf("created producer thread number: %ld\n", id); //DEBUG
 
-            sem_wait(&empty);
+            //sem_wait(&empty);
             
             activeThreads++;
+
             if(pthread_create(&prod_thread_id, NULL, &producer_thread, (void*)request) != 0) return ERROR;
             printf("Hello\n");
             
-            sem_post(&full);
+            //sem_post(&full);
             printf("Hello2\n");
 
             id++;
@@ -369,10 +393,10 @@ int main(int argc, char* argv[]){
         fprintf(stderr, "Not successfully deleted public file\n");
     }
 
-    while(activeThreads != 0){
+    /*while(activeThreads != 0){
         printf("Active Threads -> %d", activeThreads);
         sleep(2);
-    }
+    }*/
 
     //freeing memory
     fprintf(stderr, "Deallocating memory\n");
