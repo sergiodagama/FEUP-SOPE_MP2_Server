@@ -61,6 +61,8 @@ sem_t full;
 
 bool first = true;
 
+queue* deallocator;
+
 /*------------------END GLOBAL VARIABLES------------------*/
 
 /**
@@ -127,6 +129,11 @@ void *producer_thread(void * arg){
     //unlocking code wiht mutex
     pthread_mutex_unlock(&lock);
 
+    //Insert so later we can deallocate memory
+
+    insert(deallocator, request_result);
+    
+    
     activeThreads--;
 }
 
@@ -192,6 +199,9 @@ void *consumer_thread(void * arg){
         time(&now);
         fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, TLATE);
     }
+
+    //Insert answer in queue to later deallocate memory
+    insert(deallocator, answer);
 }
 
 
@@ -340,6 +350,7 @@ int main(int argc, char* argv[]){
             sleep(1);
         }
     }
+    insert(deallocator,request);
             
     /*-------------------------ENDING PROGRAM-------------------------*/
 
@@ -354,6 +365,12 @@ int main(int argc, char* argv[]){
     while(activeThreads != 0){
         sleep(2);
     }
+
+    //freeing memory
+    fprintf(stderr, "Deallocating memory\n");
+    free_memory(deallocator);
+    fprintf(stderr, "Memory deallocated\n");
+
     //releasing pthread mutex structure
     pthread_mutex_destroy(&lock);
 
