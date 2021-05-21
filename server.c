@@ -60,13 +60,9 @@ sem_t empty;
 
 sem_t full;
 
-bool first = true;
-
 queue* deallocator;
 
 message_t* reque;
-
-message_t* buffer_req[10000];
 
 /*------------------END GLOBAL VARIABLES------------------*/
 
@@ -78,11 +74,8 @@ message_t* buffer_req[10000];
 void sig_handler(int signum){
     time_t now;
     time(&now);
-    fprintf(stderr,"[server] timeout reached: %ld\n", now);
-
     time_is_up = true;
-    printf("Time is up\n");
-    //exit(0);
+    fprintf(stderr,"[server] timeout reached: %ld\n", now);
 }
 
 /**
@@ -92,14 +85,14 @@ void sig_handler(int signum){
  * @return void* 
  */
 void *producer_thread(void * arg){
+    activeThreads++;
+    
     //request message from client
-       
+    message_t * request = malloc(sizeof(message_t));
+    *request = *(message_t *)arg;
 
-    message_t *request = arg;
+    insert(deallocator,request);
 
-    //ptread_mutex_unlock(&lock);
-
-        
     //get current time and current thread info
     time_t cur_secs;
     time(&cur_secs);
@@ -108,16 +101,16 @@ void *producer_thread(void * arg){
     
     fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", cur_secs, request->rid, request->tskload, pid, tid, request->tskres, RECVD);
 
-    //!!!!!!!!!!!!!!!!!!!!!!NEW UNTESTED PART!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     //doing the designated task calling library B
     int task_res = task(request->tskload);
+
 
     //getting time after task execution
     time(&cur_secs);
 
     fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", cur_secs, request->rid, request->tskload, pid, tid, task_res, TSKEX);
-    printf("Hello4\n");
+
     //send task result to buffer
     message_t *request_result = malloc( sizeof(message_t) );
 
@@ -126,14 +119,12 @@ void *producer_thread(void * arg){
     request_result->tid = request->tid;
     request_result->tskload = request->tskload;
     request_result->tskres = task_res;
-        
-    printf("Hello5\n");
+
 
     //semaphore initialization
     // sem_init(&empty, 0, 0);
     // sem_init(&full, 0, bufsz);
 
-    printf("Before\n");
     sem_wait(&full);
 
     pthread_mutex_lock(&lock);
@@ -147,12 +138,8 @@ void *producer_thread(void * arg){
 
     //insert(deallocator, request_result);
     sem_post(&empty);
-    printf("After\n");
-    
-    
-    printf("Hello6\n");
+
     activeThreads--;
-    printf("Out of producer thread\n");
 }
 
 /**
@@ -167,49 +154,70 @@ void *consumer_thread(void * arg){
     int pid;
     time_t now;
 
-    printf("Hello consumer\n");
-
-    
-
     //info that if going to be retrieved from buffer
-    message_t *answer = malloc( sizeof(message_t) );
+   
 
     //loop while time isn't up
     while(activeThreads != 0 || !time_is_up){
-        int bytes_written = ERROR;
-        printf("Hello1\n");
+
+        message_t* answer = malloc( sizeof(message_t) );
+
+        ssize_t bytes_written = ERROR;
         
         //locking code wiht mutex
 
-
         sem_wait(&empty);
 
-       // pthread_mutex_lock(&lock);
+        pthread_mutex_lock(&lock);
 
-        answer = front(buffer);
+        *answer = *(front(buffer)); //TODO 
         pop(buffer);
        
-       // pthread_mutex_unlock(&lock);
+        pthread_mutex_unlock(&lock);
 
         sem_post(&full);
 
-        printf("Hello2\n");
         if(answer != NULL){
-            char priv_path[100];
 
-            sprintf(priv_path, "/tmp/%d.%lu", answer->pid, answer->tid);
+            char *private_fifo_path = NULL;
+            int path_size = snprintf(private_fifo_path, 0, "/tmp/%d.%lu",answer->pid, answer->tid) + 1;  
+            
+            if (path_size == -1) {
+                return NULL;
+            }
+
+            private_fifo_path = malloc(path_size);
+
+            if (private_fifo_path == NULL) {
+                return NULL;
+            }
+
+            if (snprintf(private_fifo_path, path_size, "/tmp/%d.%lu",answer->pid, answer->tid) < 0 ) {
+                free(private_fifo_path);
+                return NULL;
+            }
+            
+            if(time_is_up){
+                time(&now);
+                fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, TLATE);
+                answer->tskres = -1;
+            }
 
             //open private fifo
-            int priv_fd = open(priv_path, O_WRONLY);
+            int priv_fd = open(private_fifo_path, O_WRONLY | O_NONBLOCK);
+            
+            if(priv_fd != 0){
+                fprintf(stderr, "Error opening private fifo!\n");
+            }
 
             //write answer to client in the private fifo
-            bytes_written = write(priv_fd, &answer, sizeof(message_t));
+            bytes_written = write(priv_fd, answer, sizeof(message_t));
 
             //maybe sleep(1) in the end?
-            
-        
 
-            if(bytes_written < 0){
+            if(time_is_up) continue;
+
+            if(bytes_written < 0){  
                 time(&now);
                 fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, FAILD);
             }
@@ -218,15 +226,11 @@ void *consumer_thread(void * arg){
                 fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, TSKDN);
             }
         }
-    }
-    printf("Hello3\n");
-    /*if(answer != NULL){
-        time(&now);
-        fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, TLATE);
-    }*/
 
-    //Insert answer in queue to later deallocate memory
-    //insert(deallocator, answer);
+        free(answer);
+
+    }
+
 }
 
 
@@ -324,7 +328,7 @@ int main(int argc, char* argv[]){
     int tout = 1;  //DEBUG
 
     //getting the request from client
-    message_t *request = malloc( sizeof(message_t) );
+    
 
     //openning public fifo
     public_fd = open(public_fifo, O_RDONLY); 
@@ -339,12 +343,14 @@ int main(int argc, char* argv[]){
     if(debug) printf("created consumer thread!\n"); //DEBUG
 
     if(pthread_create(&con_thread_id, NULL, &consumer_thread, (void*)0) != 0) return ERROR;
-    first = false;
     
      /*---------------------MAIN THREAD (C0) LOOP---------------------*/
 
     //reading requests from client
     while(!time_is_up){
+
+        message_t *request = malloc( sizeof(message_t) ); //Era isto
+
         bytes_read = read(public_fd, request, sizeof(message_t)); 
 
         //atualize time_is_up
@@ -355,6 +361,7 @@ int main(int argc, char* argv[]){
         if(now - initial_time >= nsecs){
             fprintf(stderr,"[server] timeout reached: %ld\n", now);
             time_is_up = true;
+            break;
         }
 
         //to check if there was a resquest or not
@@ -364,23 +371,19 @@ int main(int argc, char* argv[]){
 
             if(debug) printf("created producer thread number: %ld\n", id); //DEBUG
 
-            //sem_wait(&empty);
-            
-            activeThreads++;
-
             if(pthread_create(&prod_thread_id, NULL, &producer_thread, (void*)request) != 0) return ERROR;
-            printf("Hello\n");
-            
-            //sem_post(&full);
-            printf("Hello2\n");
 
             id++;
         }
         else{ //TODO: IF READ TIMEOUTS FOR LONG ASSUME CLIENT IT'S CLOSED AND EXIT
             if(debug) printf("timeout read: %d", tout);  //DEBUG
             tout++;  //DEBUG
-            sleep(1);
+            break;
+            //sleep(1);
         }
+
+        //free(request);
+
     }
     //insert(deallocator,request);
             
@@ -393,14 +396,14 @@ int main(int argc, char* argv[]){
         fprintf(stderr, "Not successfully deleted public file\n");
     }
 
-    /*while(activeThreads != 0){
+    while(activeThreads != 0){
         printf("Active Threads -> %d", activeThreads);
         sleep(2);
-    }*/
+    }
 
     //freeing memory
     fprintf(stderr, "Deallocating memory\n");
-    //free_memory(deallocator);
+    free_memory(deallocator);
     fprintf(stderr, "Memory deallocated\n");
 
     //releasing pthread mutex structure
@@ -409,8 +412,7 @@ int main(int argc, char* argv[]){
     //realeasing semaphore
     sem_destroy(&empty);
     sem_destroy(&full);
-
-
+    printf("Ended\n");
 
     //main thread waits for all threads to exit
     pthread_exit(NULL);
