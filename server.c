@@ -32,6 +32,7 @@
 #define TSKDN "TSKDN"
 #define TLATE "2LATE"
 #define FAILD "FAILD"
+#define DEALLOC 1000
 
 //structure used to communicate with client
 
@@ -76,12 +77,7 @@ void sig_handler(int signum){
     fprintf(stderr,"[server] timeout reached: %ld\n", now);
 
     time_is_up = true;
-
-    //deleting public fifo file
-    if(remove(public_fifo) != 0){
-        fprintf(stderr, "Not successfully deleted public file\n");
-    }
-    
+    printf("Time is up\n");
 }
 
 /**
@@ -111,7 +107,7 @@ void *producer_thread(void * arg){
     time(&cur_secs);
 
     fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", cur_secs, request->rid, request->tskload, pid, tid, task_res, TSKEX);
-
+    printf("Hello4\n");
     //send task result to buffer
     message_t *request_result = malloc( sizeof(message_t) );
 
@@ -120,7 +116,8 @@ void *producer_thread(void * arg){
     request_result->tid = request->tid;
     request_result->tskload = request->tskload;
     request_result->tskres = task_res;
-
+    
+    printf("Hello5\n");
     //locking code wiht mutex
     pthread_mutex_lock(&lock);
 
@@ -131,10 +128,11 @@ void *producer_thread(void * arg){
 
     //Insert so later we can deallocate memory
 
-    insert(deallocator, request_result);
+    //insert(deallocator, request_result);
     
-    
+    printf("Hello6\n");
     activeThreads--;
+    printf("Out of producer thread\n");
 }
 
 /**
@@ -145,12 +143,14 @@ void *producer_thread(void * arg){
  */
 void *consumer_thread(void * arg){
 
- //!!!!!!!!!!!!!!!!!!!!!!NEW UNTESTED PART!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
     
     //info about the consumer thread itself
     pthread_t tid;
     int pid;
     time_t now;
+
+    printf("Hello\n");
 
     //info that if going to be retrieved from buffer
     message_t *answer = malloc( sizeof(message_t) );
@@ -158,7 +158,8 @@ void *consumer_thread(void * arg){
     //loop while time isn't up
     while(activeThreads != 0 || first){
         int bytes_written = ERROR;
-
+        printf("Hello1\n");
+        sem_wait(&full);
         //locking code wiht mutex
         pthread_mutex_lock(&lock);
 
@@ -168,7 +169,8 @@ void *consumer_thread(void * arg){
         }
         
         pthread_mutex_unlock(&lock);
-
+        sem_post(&empty);
+        printf("Hello2\n");
         if(answer != NULL){
             char priv_path[100];
 
@@ -194,14 +196,14 @@ void *consumer_thread(void * arg){
             }
         }
     }
-    
+    printf("Hello3\n");
     if(answer != NULL){
         time(&now);
         fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, TLATE);
     }
 
     //Insert answer in queue to later deallocate memory
-    insert(deallocator, answer);
+    //insert(deallocator, answer);
 }
 
 
@@ -284,6 +286,10 @@ int main(int argc, char* argv[]){
         return ERROR;                                                
     }
 
+    //Create queues both deallocator and buffer
+    buffer = createQueue(bufsz);
+    deallocator = createQueue(DEALLOC);
+
     //thread unique identifier
     long int id = 1;
 
@@ -339,8 +345,10 @@ int main(int argc, char* argv[]){
             
             activeThreads++;
             if(pthread_create(&prod_thread_id, NULL, &producer_thread, (void*)request) != 0) return ERROR;
+            printf("Hello\n");
             
             sem_post(&full);
+            printf("Hello2\n");
 
             id++;
         }
@@ -350,25 +358,25 @@ int main(int argc, char* argv[]){
             sleep(1);
         }
     }
-    insert(deallocator,request);
+    //insert(deallocator,request);
             
     /*-------------------------ENDING PROGRAM-------------------------*/
 
     //closing public fifo
     close(public_fd);
 
-    //deleting public fifo file
     if(remove(public_fifo) != 0){
-        fprintf(stderr, "[server] Not able to delete public file\n");
+        fprintf(stderr, "Not successfully deleted public file\n");
     }
 
     while(activeThreads != 0){
+        printf("Active Threads -> %d", activeThreads);
         sleep(2);
     }
 
     //freeing memory
     fprintf(stderr, "Deallocating memory\n");
-    free_memory(deallocator);
+    //free_memory(deallocator);
     fprintf(stderr, "Memory deallocated\n");
 
     //releasing pthread mutex structure
