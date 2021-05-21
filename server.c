@@ -111,7 +111,7 @@ void *producer_thread(void * arg){
     fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", cur_secs, request->rid, request->tskload, pid, tid, task_res, TSKEX);
 
     //send task result to buffer
-    message_t *request_result;
+    message_t *request_result = malloc( sizeof(message_t) );
 
     request_result->pid = request->pid;
     request_result->rid = request->rid;
@@ -146,7 +146,7 @@ void *consumer_thread(void * arg){
     time_t now;
 
     //info that if going to be retrieved from buffer
-    message_t *answer;
+    message_t *answer = malloc( sizeof(message_t) );
 
     //loop while time isn't up
     while(activeThreads != 0 || first){
@@ -190,7 +190,7 @@ void *consumer_thread(void * arg){
     
     if(answer != NULL){
         time(&now);
-        fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer>tid, answer->tskres, TLATE);
+        fprintf(stdout, "%ld; %d; %d; %d; %lu; %d; %s\n", now, answer->rid, answer->tskload, answer->pid, answer->tid, answer->tskres, TLATE);
     }
 }
 
@@ -285,7 +285,7 @@ int main(int argc, char* argv[]){
     int tout = 1;  //DEBUG
 
     //getting the request from client
-    message_t *request;
+    message_t *request = malloc( sizeof(message_t) );
 
     //openning public fifo
     public_fd = open(public_fifo, O_RDONLY); 
