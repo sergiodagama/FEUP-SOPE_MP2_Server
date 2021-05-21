@@ -12,7 +12,7 @@ queue* createQueue( unsigned  maxCapacity ){
     newQueue->front = newQueue->size = 0;
 
     newQueue->back = maxCapacity - 1;
-    newQueue->msg = (message_t *) malloc(newQueue->maxCapacity * sizeof(message_t));
+    newQueue->msg = (message_t **) malloc(newQueue->maxCapacity * sizeof(message_t));
 
     return newQueue;
 }
@@ -41,7 +41,7 @@ bool isFull( queue* queue ){
  * @param queue
  * @param content
  */
-void insert( queue* queue, message_t content ){
+void insert( queue* queue, message_t* content ){
     if( isFull(queue) ) {
         fprintf(stderr, "Queue full\n");
         return;
@@ -58,12 +58,10 @@ void insert( queue* queue, message_t content ){
  * @param queue
  * @return message_t item equal to the front item, if the queue is empty return a message_t item with pid == -1
  */
-message_t pop( queue* queue ){
-    message_t nullpop;
-    nullpop.pid = -1;
-    if(isEmpty(queue) ) return nullpop;
+message_t* pop( queue* queue ){
+    if(isEmpty(queue) ) return NULL;
 
-    message_t poped = queue->msg[queue->front];
+    message_t *poped = queue->msg[queue->front];
 
     queue->front = (queue->front + 1) % queue->maxCapacity;
     queue->size--;
@@ -75,10 +73,8 @@ message_t pop( queue* queue ){
  * @param queue
  * @return message_t item equal to the front item, if the queue is empty return a message_t item with pid == -1
  */
-message_t front( queue* queue){
-    message_t empty;
-    empty.pid = -1;
-    if(isEmpty( queue ) ) return empty;
+message_t* front( queue* queue){
+    if(isEmpty( queue ) ) return NULL;
     return queue->msg[queue->front];
 }
 
@@ -87,10 +83,8 @@ message_t front( queue* queue){
  * @param queue
  * @return message_t item equal to the front item, if the queue is empty return a message_t item with pid == -1
  */
-message_t back( queue* queue){
-    message_t empty;
-    empty.pid = -1;
-    if(isEmpty( queue ) ) return empty;
+message_t* back( queue* queue){
+    if(isEmpty( queue ) ) return NULL;
     return queue->msg[queue->back];
 }
 

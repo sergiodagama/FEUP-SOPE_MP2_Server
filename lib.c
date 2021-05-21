@@ -5,7 +5,7 @@
 #include "delay.h"
 
 int c = 0;	// JMC
-pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t lock2 = PTHREAD_MUTEX_INITIALIZER;
 
 int task(int level) {
 	usleep(delay*1000);
@@ -14,9 +14,9 @@ int task(int level) {
 	usleep(level*10000);
 	fprintf(stderr,"[lib] a %d task has finished\n",level);
 
-    pthread_mutex_lock(&lock);
+    pthread_mutex_lock(&lock2);
     c += 10;
     int n = c;
-    pthread_mutex_unlock(&lock);
+    pthread_mutex_unlock(&lock2);
 	return n;
 }

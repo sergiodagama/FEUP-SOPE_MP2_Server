@@ -21,6 +21,10 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <signal.h>
+#include "utils.h"
+#include "lib.h"
+#include "queue.h"
+#include "semaphore.h"
 
 #define ERROR -1
 #define RECVD "RECVD"
@@ -30,7 +34,6 @@
 #define FAILD "FAILD"
 
 //structure used to communicate with client
-typedef struct message { int rid; pid_t pid; pthread_t tid; int tskload; int tskres; } message_t; 
 
 /*--------------------GLOBAL VARIABLES--------------------*/
 
@@ -48,44 +51,17 @@ int bufsz = 1;  //server buffer size (default 1)
 
 bool buffer_is_empty = false;  //to keep track if buffer is empty or not
 
+queue* buffer;
+
+int activeThreads = 0;
+
+sem_t empty;  
+
+sem_t full;
+
+bool first = true;
+
 /*------------------END GLOBAL VARIABLES------------------*/
-
-
-/*---------------------UTIL FUNCTIONS---------------------*/
-
-/**
- * @brief treats user argument input errors
- * 
- */
-void input_error(){
-    fprintf(stderr,"Usage: ./s <-t nsecs> [-l bufsize] fifoname\n");
-    exit(1);
-}
-
-/**
- * @brief compares two strings (wrapper function for strcmp)
- * 
- * @param string1 first string to be compare with
- * @param string2 second string to compare with the first
- * @return true if strings are the same, false otherwise
- */
-bool str_cmp(char *string1, char *string2){
-    if(strcmp(string1, string2) == 0) return true;
-    else return false;
-}
-
-/**
- * @brief checks if a string represents a valid number
- * 
- * @param str the string to be checked
- * @return true if it a number, false otherwise
- */
-bool is_number(char *str){
-     for (int i = 0; str[i] != '\0'; i++)
-        if (isdigit(str[i]) == false)
-            return false;
-    return true;
-}
 
 /**
  * @brief handles signals (for now just needed sigalam)
@@ -97,16 +73,13 @@ void sig_handler(int signum){
     time(&now);
     fprintf(stderr,"[server] timeout reached: %ld\n", now);
 
+    time_is_up = true;
+
     //deleting public fifo file
     if(remove(public_fifo) != 0){
         fprintf(stderr, "Not successfully deleted public file\n");
     }
-
-    //main thread waits for all threads to exit
-    pthread_exit(NULL);
-
-    //releasing pthread mutex structure
-    pthread_mutex_destroy(&lock);
+    
 }
 
 /**
@@ -117,7 +90,7 @@ void sig_handler(int signum){
  */
 void *producer_thread(void * arg){
     //request message from client
-    message_t *request = (message_t*) arg;
+    message_t *request = arg;
 
     //get current time and current thread info
     time_t cur_secs;
@@ -140,19 +113,21 @@ void *producer_thread(void * arg){
     //send task result to buffer
     message_t *request_result;
 
-    request_result->pid = pid;
+    request_result->pid = request->pid;
     request_result->rid = request->rid;
-    request_result->tid = tid;
+    request_result->tid = request->tid;
     request_result->tskload = request->tskload;
     request_result->tskres = task_res;
 
     //locking code wiht mutex
     pthread_mutex_lock(&lock);
 
-    insert(request_result);
+    insert(buffer,request_result);
 
     //unlocking code wiht mutex
     pthread_mutex_unlock(&lock);
+
+    activeThreads--;
 }
 
 /**
@@ -164,7 +139,7 @@ void *producer_thread(void * arg){
 void *consumer_thread(void * arg){
 
  //!!!!!!!!!!!!!!!!!!!!!!NEW UNTESTED PART!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
+    
     //info about the consumer thread itself
     pthread_t tid;
     int pid;
@@ -174,16 +149,18 @@ void *consumer_thread(void * arg){
     message_t *answer;
 
     //loop while time isn't up
-    while(!time_is_up){
+    while(activeThreads != 0 || first){
         int bytes_written = ERROR;
 
         //locking code wiht mutex
         pthread_mutex_lock(&lock);
 
-        if(!empty()){
-            answer = front();
-            pop();
+        if(!isEmpty(buffer)){
+            answer = front(buffer);
+            pop(buffer);
         }
+        
+        pthread_mutex_unlock(&lock);
 
         if(answer != NULL){
             char priv_path[100];
@@ -198,8 +175,7 @@ void *consumer_thread(void * arg){
 
             //maybe sleep(1) in the end?
             
-            //unlocking code wiht mutex
-            pthread_mutex_unlock(&lock);
+        
 
             if(bytes_written < 0){
                 time(&now);
@@ -320,6 +296,7 @@ int main(int argc, char* argv[]){
     if(debug) printf("created consumer thread!\n"); //DEBUG
 
     if(pthread_create(&con_thread_id, NULL, &consumer_thread, (void*)0) != 0) return ERROR;
+    first = false;
     
      /*---------------------MAIN THREAD (C0) LOOP---------------------*/
 
@@ -344,7 +321,12 @@ int main(int argc, char* argv[]){
 
             if(debug) printf("created producer thread number: %ld\n", id); //DEBUG
 
+            sem_wait(&empty);
+            
+            activeThreads++;
             if(pthread_create(&prod_thread_id, NULL, &producer_thread, (void*)request) != 0) return ERROR;
+            
+            sem_post(&full);
 
             id++;
         }
@@ -365,11 +347,12 @@ int main(int argc, char* argv[]){
         fprintf(stderr, "[server] Not able to delete public file\n");
     }
 
-    //main thread waits for all threads to exit
-    pthread_exit(NULL);
-
+    while()
     //releasing pthread mutex structure
     pthread_mutex_destroy(&lock);
+
+    //main thread waits for all threads to exit
+    pthread_exit(NULL);
 
     return 0;
 }
